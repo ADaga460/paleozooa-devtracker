@@ -1,2 +1,3 @@
-# No external dependencies - uses stdlib only
-# sqlite3, http.server, json, threading are all built-in
+# libsql-experimental is Turso's Python client — used when TURSO_DATABASE_URL is set,
+# to persist data across ephemeral Render deploys. Falls back to local sqlite3 otherwise.
+libsql-experimental>=0.0.41

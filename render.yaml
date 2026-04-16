@@ -2,14 +2,14 @@ services:
   - type: web
     name: paleozooa-collector
     runtime: python
-    buildCommand: echo "no build needed"
+    buildCommand: pip install -r requirements.txt
     startCommand: python server.py
     envVars:
       - key: PORT
         value: "8060"
       - key: DB_PATH
-        value: /opt/render/project/src/paleozooa_metrics.db
-    disk:
-      name: metrics-db
-      mountPath: /opt/render/project/src
-      sizeGB: 1
+        value: /tmp/paleozooa_metrics.db
+      - key: TURSO_DATABASE_URL
+        sync: false
+      - key: TURSO_AUTH_TOKEN
+        sync: false
