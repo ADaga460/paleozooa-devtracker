@@ -24,21 +24,30 @@ import sqlite3
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 PORT = int(os.environ.get("PORT", 8060))
 COLLECTOR_KEY = os.environ.get("COLLECTOR_KEY", "")
 DB_PATH = os.environ.get("DB_PATH", "./paleozooa_metrics.db")
+TURSO_URL = os.environ.get("TURSO_DATABASE_URL", "")
+TURSO_TOKEN = os.environ.get("TURSO_AUTH_TOKEN", "")
 
 # --- Database ---
 
 _local = threading.local()
 
-def get_db() -> sqlite3.Connection:
+def get_db():
     if not hasattr(_local, "conn") or _local.conn is None:
-        _local.conn = sqlite3.connect(DB_PATH)
-        _local.conn.execute("PRAGMA journal_mode=WAL")
-        _local.conn.execute("PRAGMA synchronous=NORMAL")
+        if TURSO_URL:
+            # Embedded replica: local file synced with Turso remote. Reads hit the
+            # local copy (fast); writes propagate to the remote for persistence.
+            import libsql_experimental as libsql
+            _local.conn = libsql.connect(DB_PATH, sync_url=TURSO_URL, auth_token=TURSO_TOKEN)
+            _local.conn.sync()
+        else:
+            _local.conn = sqlite3.connect(DB_PATH)
+            _local.conn.execute("PRAGMA journal_mode=WAL")
+            _local.conn.execute("PRAGMA synchronous=NORMAL")
     return _local.conn
 
 def init_db():
@@ -68,7 +77,7 @@ def insert_event(event: str, data: dict, session_id: str | None, timestamp: str)
 
 def aggregate_stats() -> dict:
     db = get_db()
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     today = now.strftime("%Y-%m-%d")
     week_ago = (now - timedelta(days=7)).isoformat()
 
@@ -269,7 +278,7 @@ def aggregate_stats() -> dict:
         "deviceBreakdown": {d: c for d, c in devices},
         "nodeClicks": [{"name": n, "count": c} for n, c in node_clicks],
         "lcaDepthDistribution": {str(d): c for d, c in lca_dist},
-        "serverTime": datetime.utcnow().isoformat() + "Z",
+        "serverTime": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
     }
 
 
@@ -377,7 +386,7 @@ class CollectorHandler(BaseHTTPRequestHandler):
             session_id = data.pop("sessionId", None) if isinstance(data, dict) else None
             timestamp = data.pop("timestamp", None) if isinstance(data, dict) else None
             if not timestamp:
-                timestamp = datetime.utcnow().isoformat() + "Z"
+                timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
             insert_event(event, data, session_id, timestamp)
             self._json({"ok": True})
@@ -387,6 +396,12 @@ class CollectorHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         # Compact logging
         print(f"  {args[0]}" if args else "")
+
+    def handle_one_request(self):
+        try:
+            super().handle_one_request()
+        except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError):
+            self.close_connection = True
 
 
 def main():

@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/Users/aarav/github/paleozooa/**)",
+      "Read(//c/Users/aarav/github/paleozooa-devtracker/**)"
+    ]
+  }
+}
