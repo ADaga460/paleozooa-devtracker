@@ -1,0 +1,2 @@
+# No external dependencies - uses stdlib only
+# sqlite3, http.server, json, threading are all built-in

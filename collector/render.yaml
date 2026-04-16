@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: paleozooa-collector
+    runtime: python
+    buildCommand: echo "no build needed"
+    startCommand: python server.py
+    envVars:
+      - key: PORT
+        value: "8060"
+      - key: DB_PATH
+        value: /opt/render/project/src/paleozooa_metrics.db
+    disk:
+      name: metrics-db
+      mountPath: /opt/render/project/src
+      sizeGB: 1
