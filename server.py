@@ -31,6 +31,7 @@ COLLECTOR_KEY = os.environ.get("COLLECTOR_KEY", "")
 DB_PATH = os.environ.get("DB_PATH", "./paleozooa_metrics.db")
 TURSO_URL = os.environ.get("TURSO_DATABASE_URL", "")
 TURSO_TOKEN = os.environ.get("TURSO_AUTH_TOKEN", "")
+MAX_INGEST_BYTES = 65536  # 64 KB — plenty for one analytics event
 
 # --- Database ---
 
@@ -309,7 +310,13 @@ class CollectorHandler(BaseHTTPRequestHandler):
         path = parsed.path.rstrip("/")
 
         if path == "/api/stats":
-            self._json(aggregate_stats())
+            try:
+                stats = aggregate_stats()
+            except Exception as e:
+                print(f"  /api/stats failed: {type(e).__name__}: {e}")
+                self._json({"error": "internal error"}, 500)
+                return
+            self._json(stats)
 
         elif path == "/api/stats/stream":
             # SSE endpoint
@@ -369,7 +376,14 @@ class CollectorHandler(BaseHTTPRequestHandler):
                     self._json({"error": "unauthorized"}, 401)
                     return
 
-            length = int(self.headers.get("Content-Length", 0))
+            try:
+                length = int(self.headers.get("Content-Length", 0))
+            except ValueError:
+                self._json({"error": "invalid content-length"}, 400)
+                return
+            if length > MAX_INGEST_BYTES:
+                self._json({"error": "request too large"}, 413)
+                return
             body = self.rfile.read(length)
             try:
                 payload = json.loads(body)
