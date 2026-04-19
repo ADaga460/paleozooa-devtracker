@@ -18,6 +18,7 @@ Env vars:
 """
 
 import os
+import hmac
 import json
 import time
 import sqlite3
@@ -343,7 +344,7 @@ class CollectorHandler(BaseHTTPRequestHandler):
     def _cors(self):
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Collector-Key")
 
     def _json(self, data, status=200):
         body = json.dumps(data).encode()
@@ -357,6 +358,17 @@ class CollectorHandler(BaseHTTPRequestHandler):
         self.send_response(204)
         self._cors()
         self.end_headers()
+
+    def _key_ok(self, parsed) -> bool:
+        """True if the request carries a valid COLLECTOR_KEY (header or ?key=)."""
+        if not COLLECTOR_KEY:
+            return True
+        # Header is preferred (browser frontend uses this); query param is legacy.
+        header_key = self.headers.get("X-Collector-Key", "")
+        if header_key and hmac.compare_digest(header_key, COLLECTOR_KEY):
+            return True
+        qs_key = parse_qs(parsed.query).get("key", [""])[0]
+        return bool(qs_key) and hmac.compare_digest(qs_key, COLLECTOR_KEY)
 
     def do_GET(self):
         parsed = urlparse(self.path)
@@ -402,8 +414,7 @@ class CollectorHandler(BaseHTTPRequestHandler):
             if not COLLECTOR_KEY:
                 self._json({"error": "not found"}, 404)
                 return
-            qs = parse_qs(parsed.query)
-            if qs.get("key", [None])[0] != COLLECTOR_KEY:
+            if not self._key_ok(parsed):
                 self._json({"error": "unauthorized"}, 401)
                 return
             db = get_db()
@@ -441,13 +452,11 @@ class CollectorHandler(BaseHTTPRequestHandler):
             return
 
         if path == "/api/ingest":
-            # Auth check
-            if COLLECTOR_KEY:
-                qs = parse_qs(parsed.query)
-                key = qs.get("key", [None])[0]
-                if key != COLLECTOR_KEY:
-                    self._json({"error": "unauthorized"}, 401)
-                    return
+            # Auth check (only enforced if COLLECTOR_KEY is configured).
+            # The game's frontend sends X-Collector-Key; legacy ?key= also accepted.
+            if not self._key_ok(parsed):
+                self._json({"error": "unauthorized"}, 401)
+                return
 
             try:
                 length = int(self.headers.get("Content-Length", 0))

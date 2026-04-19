@@ -18,7 +18,12 @@
       "Read(//tmp/**)",
       "Bash(curl -s -m 20 -o /tmp/body -w \"HTTP %{http_code}\\\\n\" https://paleozooa-devtracker.onrender.com/api/health)",
       "Bash(PORT=18062 DB_PATH=/tmp/probe_boot.db timeout 3 python3 -u server.py)",
-      "Bash(echo \"exit=$?\")"
+      "Bash(echo \"exit=$?\")",
+      "Bash(PORT=18063 DB_PATH=/tmp/probe_auth.db COLLECTOR_KEY=testkey timeout 4 python3 -u server.py)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" -X POST -H \"Content-Type: application/json\" -d '{\"event\":\"x\",\"data\":{}}' http://127.0.0.1:18063/api/ingest)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" -X POST -H \"Content-Type: application/json\" -H \"X-Collector-Key: testkey\" -d '{\"event\":\"x\",\"data\":{}}' http://127.0.0.1:18063/api/ingest)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" -X POST -H \"Content-Type: application/json\" -d '{\"event\":\"x\",\"data\":{}}' \"http://127.0.0.1:18063/api/ingest?key=testkey\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" -X POST -H \"Content-Type: application/json\" -H \"X-Collector-Key: wrong\" -d '{\"event\":\"x\",\"data\":{}}' http://127.0.0.1:18063/api/ingest)"
     ]
   }
 }
