@@ -33,6 +33,44 @@ TURSO_URL = os.environ.get("TURSO_DATABASE_URL", "")
 TURSO_TOKEN = os.environ.get("TURSO_AUTH_TOKEN", "")
 MAX_INGEST_BYTES = 65536  # 64 KB — plenty for one analytics event
 
+# Per-IP token bucket. Sustained RATE_REFILL_PER_SEC requests/sec, burst RATE_CAPACITY.
+# Defaults: burst of 30, 1 req/sec sustained (60/min). Tune via env if needed.
+RATE_CAPACITY = float(os.environ.get("RATE_CAPACITY", 30))
+RATE_REFILL_PER_SEC = float(os.environ.get("RATE_REFILL_PER_SEC", 1.0))
+_rate_lock = threading.Lock()
+_rate_state: dict = {}  # ip -> [tokens, last_monotonic_ts]
+
+def _client_ip(headers, client_address):
+    # Render sits behind a load balancer, so client_address is always the LB.
+    # Real client IP is in X-Forwarded-For (first entry).
+    xff = headers.get("X-Forwarded-For", "")
+    if xff:
+        return xff.split(",")[0].strip()
+    return client_address[0]
+
+def _rate_check(ip: str) -> bool:
+    """Return True if the request is allowed, False if it should be rejected."""
+    now = time.monotonic()
+    with _rate_lock:
+        state = _rate_state.get(ip)
+        if state is None:
+            state = [RATE_CAPACITY, now]
+            _rate_state[ip] = state
+        tokens = min(RATE_CAPACITY, state[0] + (now - state[1]) * RATE_REFILL_PER_SEC)
+        state[1] = now
+        if tokens < 1.0:
+            state[0] = tokens
+            allowed = False
+        else:
+            state[0] = tokens - 1.0
+            allowed = True
+        # Opportunistic cleanup so the dict can't grow unbounded.
+        if len(_rate_state) > 50000:
+            cutoff = now - 300
+            for k in [k for k, v in _rate_state.items() if v[1] < cutoff]:
+                _rate_state.pop(k, None)
+        return allowed
+
 # --- Database ---
 
 _local = threading.local()
@@ -309,6 +347,12 @@ class CollectorHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path.rstrip("/")
 
+        # Rate limit everything except the health probe (Render may poll it).
+        if path not in ("/api/health", "", "/"):
+            if not _rate_check(_client_ip(self.headers, self.client_address)):
+                self._json({"error": "rate limited"}, 429)
+                return
+
         if path == "/api/stats":
             try:
                 stats = aggregate_stats()
@@ -337,6 +381,16 @@ class CollectorHandler(BaseHTTPRequestHandler):
                 pass
 
         elif path == "/api/events":
+            # Locked down: this endpoint exposes session IDs, user agents, URLs,
+            # and referrers. Require COLLECTOR_KEY; if none is configured, hide
+            # the endpoint entirely so it isn't publicly scrapable.
+            if not COLLECTOR_KEY:
+                self._json({"error": "not found"}, 404)
+                return
+            qs = parse_qs(parsed.query)
+            if qs.get("key", [None])[0] != COLLECTOR_KEY:
+                self._json({"error": "unauthorized"}, 401)
+                return
             db = get_db()
             rows = db.execute(
                 "SELECT event, data, session_id, timestamp FROM events ORDER BY id DESC LIMIT 200"
@@ -366,6 +420,10 @@ class CollectorHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         parsed = urlparse(self.path)
         path = parsed.path.rstrip("/")
+
+        if not _rate_check(_client_ip(self.headers, self.client_address)):
+            self._json({"error": "rate limited"}, 429)
+            return
 
         if path == "/api/ingest":
             # Auth check

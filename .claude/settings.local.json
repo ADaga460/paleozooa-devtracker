@@ -9,7 +9,8 @@
       "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(f'{len\\(d\\)} events'\\); [print\\(f'  {e[\\\\\"event\\\\\"]} \\({e[\\\\\"timestamp\\\\\"]}\\)'\\) for e in d[:10]]\")",
       "Bash(curl -s https://paleozooa-devtracker.onrender.com/api/stats)",
       "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(json.dumps\\({k:d[k] for k in ['totalEvents','eventsToday','totalGamesStarted','totalGamesCompleted','uniqueSessions']}, indent=2\\)\\)\")",
-      "Bash(grep -r \"^\\\\s*//.*\" \"C:\\\\Users\\\\aarav\\\\github\\\\paleozooa\\\\components\\\\game\\\\GameBoard.tsx\")"
+      "Bash(grep -r \"^\\\\s*//.*\" \"C:\\\\Users\\\\aarav\\\\github\\\\paleozooa\\\\components\\\\game\\\\GameBoard.tsx\")",
+      "Bash(awk '/^function \\(num|bar|esc\\)/,/^}$/' C:/Users/aarav/github/paleozooa/dev-dashboard.py)"
     ]
   }
 }
