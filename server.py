@@ -75,22 +75,8 @@ def _rate_check(ip: str) -> bool:
 
 _local = threading.local()
 
-def get_db():
-    if not hasattr(_local, "conn") or _local.conn is None:
-        if TURSO_URL:
-            # Embedded replica: local file synced with Turso remote. Reads hit the
-            # local copy (fast); writes propagate to the remote for persistence.
-            import libsql_experimental as libsql
-            _local.conn = libsql.connect(DB_PATH, sync_url=TURSO_URL, auth_token=TURSO_TOKEN)
-            _local.conn.sync()
-        else:
-            _local.conn = sqlite3.connect(DB_PATH)
-            _local.conn.execute("PRAGMA journal_mode=WAL")
-            _local.conn.execute("PRAGMA synchronous=NORMAL")
-    return _local.conn
-
-def init_db():
-    db = get_db()
+def _ensure_schema(db):
+    # Idempotent — safe to call from any thread, cheap after the first.
     db.execute("""
         CREATE TABLE IF NOT EXISTS events (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -105,6 +91,35 @@ def init_db():
     db.execute("CREATE INDEX IF NOT EXISTS idx_ts ON events(timestamp)")
     db.execute("CREATE INDEX IF NOT EXISTS idx_session ON events(session_id)")
     db.commit()
+
+def get_db():
+    if not hasattr(_local, "conn") or _local.conn is None:
+        if TURSO_URL:
+            # Embedded replica: local file synced with Turso remote. Reads hit the
+            # local copy (fast); writes propagate to the remote for persistence.
+            # Any failure here (bad token, network) falls back to local SQLite so
+            # the service stays up; events persist only for this instance.
+            try:
+                import libsql_experimental as libsql
+                conn = libsql.connect(DB_PATH, sync_url=TURSO_URL, auth_token=TURSO_TOKEN)
+                conn.sync()
+                _local.conn = conn
+            except Exception as e:
+                print(f"  libsql connect failed ({type(e).__name__}: {e}); falling back to local sqlite3")
+                _local.conn = sqlite3.connect(DB_PATH)
+                _local.conn.execute("PRAGMA journal_mode=WAL")
+                _local.conn.execute("PRAGMA synchronous=NORMAL")
+        else:
+            _local.conn = sqlite3.connect(DB_PATH)
+            _local.conn.execute("PRAGMA journal_mode=WAL")
+            _local.conn.execute("PRAGMA synchronous=NORMAL")
+        _ensure_schema(_local.conn)
+    return _local.conn
+
+def init_db():
+    # Kept for backward compat. Schema is now ensured lazily by get_db() on
+    # first use per thread, so main() no longer needs to do this before binding.
+    _ensure_schema(get_db())
 
 def insert_event(event: str, data: dict, session_id: str | None, timestamp: str):
     db = get_db()
@@ -477,14 +492,17 @@ class CollectorHandler(BaseHTTPRequestHandler):
 
 
 def main():
-    init_db()
+    # Bind the HTTP port FIRST so Render's port scanner sees us within its timeout.
+    # Turso's initial .sync() can take >30s on cold starts, which previously blocked
+    # startup inside init_db() and caused the service to be marked dead.
+    # DB setup now happens lazily on the first request (per-thread, idempotent).
     server = HTTPServer(("0.0.0.0", PORT), CollectorHandler)
-    print(f"\n  paleozooa collector")
-    print(f"  http://0.0.0.0:{PORT}")
-    print(f"  db: {os.path.abspath(DB_PATH)}")
+    print(f"\n  paleozooa collector", flush=True)
+    print(f"  http://0.0.0.0:{PORT}", flush=True)
+    print(f"  db: {os.path.abspath(DB_PATH)}", flush=True)
     if COLLECTOR_KEY:
-        print(f"  auth: key required")
-    print(f"  ready.\n")
+        print(f"  auth: key required", flush=True)
+    print(f"  ready.\n", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

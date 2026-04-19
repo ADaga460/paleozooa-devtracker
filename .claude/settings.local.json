@@ -10,7 +10,15 @@
       "Bash(curl -s https://paleozooa-devtracker.onrender.com/api/stats)",
       "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(json.dumps\\({k:d[k] for k in ['totalEvents','eventsToday','totalGamesStarted','totalGamesCompleted','uniqueSessions']}, indent=2\\)\\)\")",
       "Bash(grep -r \"^\\\\s*//.*\" \"C:\\\\Users\\\\aarav\\\\github\\\\paleozooa\\\\components\\\\game\\\\GameBoard.tsx\")",
-      "Bash(awk '/^function \\(num|bar|esc\\)/,/^}$/' C:/Users/aarav/github/paleozooa/dev-dashboard.py)"
+      "Bash(awk '/^function \\(num|bar|esc\\)/,/^}$/' C:/Users/aarav/github/paleozooa/dev-dashboard.py)",
+      "Bash(curl -s -o /dev/null -w \"HTTP %{http_code}\\\\n\" https://paleozooa-devtracker.onrender.com/api/events)",
+      "Bash(curl -s -X POST -H \"Content-Type: application/json\" -w \"\\\\nHTTP %{http_code}\\\\n\" -d '{\"event\":\"deploy_probe\",\"data\":{}}' https://paleozooa-devtracker.onrender.com/api/ingest)",
+      "Bash(curl -s --max-time 60 https://paleozooa-devtracker.onrender.com/api/health)",
+      "Bash(curl -s -m 30 -o /tmp/body -w \"HTTP %{http_code} time %{time_total}s\\\\n\" https://paleozooa-devtracker.onrender.com/api/health)",
+      "Read(//tmp/**)",
+      "Bash(curl -s -m 20 -o /tmp/body -w \"HTTP %{http_code}\\\\n\" https://paleozooa-devtracker.onrender.com/api/health)",
+      "Bash(PORT=18062 DB_PATH=/tmp/probe_boot.db timeout 3 python3 -u server.py)",
+      "Bash(echo \"exit=$?\")"
     ]
   }
 }
